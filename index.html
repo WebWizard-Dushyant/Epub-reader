@@ -11,6 +11,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.1.5/jszip.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/epubjs/dist/epub.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/localforage/1.10.0/localforage.min.js"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     
     <style>
@@ -33,55 +34,22 @@
         }
 
         /* Themes */
-        body.theme-sepia {
-            --bg-color: #F4ECD8;
-            --text-color: #433422;
-            --ui-bg: #EAE0C8;
-            --ui-border: #D5C8A0;
-            --accent: #B05C00;
-        }
-        
-        body.theme-dark {
-            --bg-color: #1A1A1A;
-            --text-color: #E0E0E0;
-            --ui-bg: #2D2D2D;
-            --ui-border: #404040;
-            --accent: #818CF8;
-        }
+        body.theme-sepia { --bg-color: #F4ECD8; --text-color: #433422; --ui-bg: #EAE0C8; --ui-border: #D5C8A0; --accent: #B05C00; }
+        body.theme-dark { --bg-color: #1A1A1A; --text-color: #E0E0E0; --ui-bg: #2D2D2D; --ui-border: #404040; --accent: #818CF8; }
 
         /* UI Elements */
-        .glass-panel {
-            background-color: var(--ui-bg);
-            border-bottom: 1px solid var(--ui-border);
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
-        }
+        .glass-panel { background-color: var(--ui-bg); border-bottom: 1px solid var(--ui-border); box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); }
+        .glass-panel-top { border-bottom: none; border-top: 1px solid var(--ui-border); }
+        .btn { color: var(--text-color); transition: all 0.2s; }
+        .btn:hover { color: var(--accent); transform: scale(1.05); }
 
-        .btn {
-            color: var(--text-color);
-            transition: all 0.2s;
-        }
-        .btn:hover {
-            color: var(--accent);
-            transform: scale(1.05);
-        }
-
-        /* Viewer Container for 3D Animations */
-        #viewer-container {
-            perspective: 2000px;
-            width: 100%;
-            height: calc(100vh - 120px);
-            display: flex;
-            justify-content: center;
-            align-items: center;
-        }
-
-        #viewer {
-            width: 100%;
-            max-width: 800px;
-            height: 100%;
-            background: var(--bg-color);
-            box-shadow: 0 0 20px rgba(0,0,0,0.02);
-            transform-style: preserve-3d;
+        /* Viewer & Library Containers */
+        #viewer-container { perspective: 2000px; width: 100%; height: calc(100vh - 120px); display: none; justify-content: center; align-items: center; }
+        #viewer { width: 100%; max-width: 800px; height: 100%; background: var(--bg-color); box-shadow: 0 0 20px rgba(0,0,0,0.02); transform-style: preserve-3d; }
+        
+        #library-screen { 
+            display: flex; flex-direction: column; width: 100%; height: calc(100vh - 60px); 
+            background: var(--bg-color); overflow-y: auto; padding: 2rem;
         }
 
         /* Page Turn Animations */
@@ -98,18 +66,16 @@
         iframe { overflow: hidden !important; }
 
         /* TOC Sidebar */
-        #toc-sidebar {
-            background-color: var(--ui-bg);
-            border-right: 1px solid var(--ui-border);
-            transform: translateX(-100%);
-            transition: transform 0.3s ease-in-out;
-        }
+        #toc-sidebar { background-color: var(--ui-bg); border-right: 1px solid var(--ui-border); transform: translateX(-100%); transition: transform 0.3s ease-in-out; }
         #toc-sidebar.open { transform: translateX(0); }
         .toc-item { color: var(--text-color); opacity: 0.8; transition: all 0.2s; }
         .toc-item:hover { opacity: 1; color: var(--accent); padding-left: 0.25rem; }
-
-        #upload-screen { background: linear-gradient(135deg, var(--bg-color), var(--ui-bg)); }
         
+        /* Book Cover Cards */
+        .book-card { cursor: pointer; transition: transform 0.2s, box-shadow 0.2s; }
+        .book-card:hover { transform: translateY(-4px); box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); }
+        .book-cover-img { object-fit: cover; width: 100%; aspect-ratio: 2/3; background-color: var(--ui-border); border-radius: 0.5rem; }
+
         ::-webkit-scrollbar { width: 6px; }
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: var(--ui-border); border-radius: 4px; }
@@ -120,6 +86,9 @@
 
     <header class="glass-panel w-full flex justify-between items-center p-4 z-50 h-[60px]">
         <div class="flex items-center gap-4">
+            <button id="btn-home" class="btn p-2 rounded-full hidden" title="Library">
+                <i data-lucide="library"></i>
+            </button>
             <button id="btn-menu" class="btn p-2 rounded-full hidden" title="Table of Contents">
                 <i data-lucide="menu"></i>
             </button>
@@ -135,70 +104,65 @@
             
             <button id="btn-install" class="btn p-2 hidden font-medium flex items-center gap-1 text-sm bg-black/5 dark:bg-white/10 rounded-full px-3" title="Install App">
                 <i data-lucide="download" class="w-4 h-4"></i>
-                <span class="hidden sm:inline">Install App</span>
+                <span class="hidden sm:inline">Install</span>
             </button>
 
             <div class="relative group hidden sm:block">
-                <button class="btn p-2" title="Themes">
-                    <i data-lucide="palette"></i>
-                </button>
+                <button class="btn p-2" title="Themes"><i data-lucide="palette"></i></button>
                 <div class="absolute right-0 mt-2 w-32 bg-[var(--ui-bg)] border border-[var(--ui-border)] rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 overflow-hidden">
-                    <button class="w-full text-left px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 text-sm" onclick="setTheme('light')">Photon (Light)</button>
+                    <button class="w-full text-left px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 text-sm" onclick="setTheme('light')">Photon</button>
                     <button class="w-full text-left px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 text-sm" onclick="setTheme('sepia')">Sepia</button>
                     <button class="w-full text-left px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 text-sm" onclick="setTheme('dark')">Dark Matter</button>
                 </div>
             </div>
 
-            <div class="flex items-center gap-1 bg-black/5 dark:bg-white/5 rounded-full px-2 py-1 hidden sm:flex">
-                <button id="btn-font-decrease" class="btn p-1" title="Decrease Font"><i data-lucide="a-arrow-down" class="w-4 h-4"></i></button>
+            <div class="flex items-center gap-1 bg-black/5 dark:bg-white/5 rounded-full px-2 py-1 hidden sm:flex" id="font-controls">
+                <button id="btn-font-decrease" class="btn p-1"><i data-lucide="a-arrow-down" class="w-4 h-4"></i></button>
                 <span id="font-size-display" class="text-xs w-8 text-center">100%</span>
-                <button id="btn-font-increase" class="btn p-1" title="Increase Font"><i data-lucide="a-arrow-up" class="w-4 h-4"></i></button>
+                <button id="btn-font-increase" class="btn p-1"><i data-lucide="a-arrow-up" class="w-4 h-4"></i></button>
             </div>
 
-            <label class="btn p-2 cursor-pointer flex items-center gap-2 text-white rounded-full transition-colors shadow-sm" style="background-color: var(--accent);">
-                <i data-lucide="folder-open" class="w-5 h-5"></i>
-                <span class="hidden sm:block text-sm font-medium px-1">Open EPUB</span>
+            <label id="btn-add-book" class="btn p-2 cursor-pointer flex items-center gap-2 text-white rounded-full transition-colors shadow-sm" style="background-color: var(--accent);">
+                <i data-lucide="plus" class="w-5 h-5"></i>
+                <span class="hidden sm:block text-sm font-medium px-1">Add Book</span>
                 <input type="file" id="file-input" accept=".epub" class="hidden" />
             </label>
         </div>
     </header>
 
-    <div class="flex-1 relative flex w-full h-[calc(100vh-120px)]">
+    <div class="flex-1 relative flex w-full h-[calc(100vh-60px)]">
         
-        <aside id="toc-sidebar" class="absolute left-0 top-0 h-full w-64 z-40 overflow-y-auto shadow-xl p-4 flex flex-col gap-2">
-            <h2 class="font-bold text-lg mb-4 border-b border-[var(--ui-border)] pb-2">Contents</h2>
-            <ul id="toc-list" class="space-y-3 text-sm font-serif">
-                </ul>
-        </aside>
-
-        <div id="upload-screen" class="absolute inset-0 z-30 flex flex-col items-center justify-center text-center p-6">
-            <div class="w-24 h-24 mb-6 text-indigo-500" style="color: var(--accent)">
-                <i data-lucide="atom" class="w-full h-full stroke-1"></i>
+        <main id="library-screen" class="z-20">
+            <h2 class="text-2xl font-bold mb-6 font-serif">Your Library</h2>
+            <div id="library-grid" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6">
+                </div>
+            
+            <div id="empty-state" class="hidden flex-col items-center justify-center h-full opacity-50 mt-20">
+                <i data-lucide="library" class="w-16 h-16 mb-4"></i>
+                <p>Your library is empty.</p>
+                <p class="text-sm">Click "Add Book" to get started.</p>
             </div>
-            <h2 class="text-3xl font-bold mb-4 font-serif">Welcome to Photon Reader</h2>
-            <p class="mb-8 opacity-75 max-w-md">An elegant, scientifically-themed local reader. Like a photon perfectly trapped in a reflective cavity, your files never escape your device.</p>
-            <label class="cursor-pointer px-8 py-3 rounded-full text-white font-medium shadow-lg hover:shadow-xl transition-all transform hover:-translate-y-1" style="background-color: var(--accent);">
-                Choose Book
-                <input type="file" id="file-input-main" accept=".epub" class="hidden" />
-            </label>
-        </div>
+        </main>
+
+        <aside id="toc-sidebar" class="absolute left-0 top-0 h-[calc(100vh-120px)] w-64 z-40 overflow-y-auto shadow-xl p-4 flex flex-col gap-2 hidden">
+            <h2 class="font-bold text-lg mb-4 border-b border-[var(--ui-border)] pb-2">Contents</h2>
+            <ul id="toc-list" class="space-y-3 text-sm font-serif"></ul>
+        </aside>
 
         <main id="viewer-container" class="relative z-10 mx-auto px-4 sm:px-12">
             <div id="prev-zone" class="absolute left-0 top-0 w-[15%] h-full z-20 cursor-pointer hidden md:block"></div>
-            
             <div id="viewer" class="w-full h-full font-serif"></div>
-            
             <div id="next-zone" class="absolute right-0 top-0 w-[15%] h-full z-20 cursor-pointer hidden md:block"></div>
         </main>
     </div>
 
-    <footer id="footer" class="glass-panel w-full h-[60px] flex items-center justify-between px-6 z-50 opacity-0 transition-opacity duration-500">
+    <footer id="footer" class="glass-panel glass-panel-top w-full h-[60px] flex items-center justify-between px-6 z-50 hidden absolute bottom-0">
         <div class="text-xs opacity-60 w-1/4 truncate" id="chapter-name"></div>
         <div class="flex-1 flex flex-col items-center max-w-md mx-4">
             <div class="w-full bg-[var(--ui-border)] h-1.5 rounded-full overflow-hidden mb-1 relative">
                 <div id="progress-bar" class="h-full rounded-full transition-all duration-300" style="background-color: var(--accent); width: 0%;"></div>
             </div>
-            <div class="text-xs font-mono opacity-70" id="progress-text">0%</div>
+            <div class="text-xs font-mono opacity-70" id="progress-text">Calculating pages...</div>
         </div>
         <div class="w-1/4 flex justify-end gap-4">
             <button id="btn-prev" class="btn"><i data-lucide="chevron-left"></i></button>
@@ -207,112 +171,62 @@
     </footer>
 
     <div id="overlay" class="absolute inset-0 bg-black/20 z-30 hidden backdrop-blur-sm transition-opacity"></div>
+    <div id="loading-overlay" class="absolute inset-0 bg-[var(--bg-color)] z-[100] hidden flex-col items-center justify-center">
+        <i data-lucide="loader-2" class="w-12 h-12 animate-spin mb-4" style="color: var(--accent)"></i>
+        <p class="font-serif">Processing Book...</p>
+    </div>
 
     <script>
-        // --- 1. Dynamic PWA Generation ---
+        lucide.createIcons();
+
+        // --- PWA Initialization ---
         function setupPWA() {
             const canvas = document.createElement('canvas');
-            canvas.width = 512;
-            canvas.height = 512;
+            canvas.width = 512; canvas.height = 512;
             const ctx = canvas.getContext('2d');
-            
-            ctx.fillStyle = '#1A1A1A'; 
-            ctx.fillRect(0, 0, 512, 512);
-            
-            ctx.fillStyle = '#818CF8';
-            ctx.beginPath();
-            ctx.arc(256, 256, 48, 0, Math.PI * 2);
-            ctx.fill();
-            
-            ctx.strokeStyle = '#818CF8';
-            ctx.lineWidth = 20;
+            ctx.fillStyle = '#1A1A1A'; ctx.fillRect(0, 0, 512, 512);
+            ctx.fillStyle = '#818CF8'; ctx.beginPath(); ctx.arc(256, 256, 48, 0, Math.PI * 2); ctx.fill();
+            ctx.strokeStyle = '#818CF8'; ctx.lineWidth = 20;
             ctx.beginPath(); ctx.ellipse(256, 256, 180, 55, 30 * Math.PI/180, 0, Math.PI * 2); ctx.stroke();
             ctx.beginPath(); ctx.ellipse(256, 256, 180, 55, 150 * Math.PI/180, 0, Math.PI * 2); ctx.stroke();
             
             const iconUrl = canvas.toDataURL('image/png');
-
             const manifest = {
-                name: "Photon Reader",
-                short_name: "Photon",
-                description: "An elegant, physics-themed local EPUB reader.",
-                start_url: window.location.href,
-                display: "standalone",
-                background_color: "#F9F7F1",
-                theme_color: "#4F46E5",
+                name: "Photon Reader", short_name: "Photon", display: "standalone",
+                background_color: "#F9F7F1", theme_color: "#4F46E5",
                 icons: [{ src: iconUrl, sizes: "512x512", type: "image/png", purpose: "any maskable" }]
             };
-
             const manifestUrl = 'data:application/manifest+json,' + encodeURIComponent(JSON.stringify(manifest));
             const linkManifest = document.createElement('link');
-            linkManifest.rel = 'manifest';
-            linkManifest.href = manifestUrl;
-            document.head.appendChild(linkManifest);
+            linkManifest.rel = 'manifest'; linkManifest.href = manifestUrl; document.head.appendChild(linkManifest);
 
-            const appleIcon = document.createElement('link');
-            appleIcon.rel = 'apple-touch-icon';
-            appleIcon.href = iconUrl;
-            document.head.appendChild(appleIcon);
-
-            const swCode = `
-                self.addEventListener('install', e => self.skipWaiting());
-                self.addEventListener('activate', e => self.clients.claim());
-                self.addEventListener('fetch', e => {
-                    e.respondWith(
-                        caches.match(e.request).then(response => {
-                            return response || fetch(e.request).catch(() => new Response('Offline'));
-                        })
-                    );
-                });
-            `;
-            const swBlob = new Blob([swCode], {type: 'application/javascript'});
-            const swUrl = URL.createObjectURL(swBlob);
-            
-            if ('serviceWorker' in navigator) {
-                navigator.serviceWorker.register(swUrl).then(() => console.log("Photon Service Worker initialized."));
-            }
-
-            let deferredPrompt;
-            const installBtn = document.getElementById('btn-install');
-            
-            window.addEventListener('beforeinstallprompt', (e) => {
-                e.preventDefault();
-                deferredPrompt = e;
-                installBtn.classList.remove('hidden'); 
-            });
-
-            installBtn.addEventListener('click', async () => {
-                if (deferredPrompt) {
-                    deferredPrompt.prompt();
-                    const { outcome } = await deferredPrompt.userChoice;
-                    if (outcome === 'accepted') {
-                        installBtn.classList.add('hidden');
-                    }
-                    deferredPrompt = null;
-                }
-            });
+            const swCode = `self.addEventListener('install', e => self.skipWaiting()); self.addEventListener('activate', e => self.clients.claim()); self.addEventListener('fetch', e => { e.respondWith(caches.match(e.request).then(r => r || fetch(e.request).catch(()=>new Response('')))); });`;
+            const swUrl = URL.createObjectURL(new Blob([swCode], {type: 'application/javascript'}));
+            if ('serviceWorker' in navigator) navigator.serviceWorker.register(swUrl);
         }
-
         setupPWA();
 
-        // --- 2. Standard App Logic ---
-        lucide.createIcons();
-
+        // --- Core Variables ---
         let book = null;
         let rendition = null;
         let currentFontSize = 100;
         let isAnimating = false;
+        let libraryData = []; // Stores { id, title, author, coverBase64, lastCfi }
+        let currentActiveBookId = null;
+        
+        const fileInput = document.getElementById('file-input');
+        const libraryScreen = document.getElementById('library-screen');
+        const viewerContainer = document.getElementById('viewer-container');
         const viewerElement = document.getElementById('viewer');
-
-        const fileInputs = [document.getElementById('file-input'), document.getElementById('file-input-main')];
-        const uploadScreen = document.getElementById('upload-screen');
         const tocSidebar = document.getElementById('toc-sidebar');
-        const btnMenu = document.getElementById('btn-menu');
         const overlay = document.getElementById('overlay');
-        const bookTitleEl = document.getElementById('book-title');
-        const chapterNameEl = document.getElementById('chapter-name');
-        const progressBar = document.getElementById('progress-bar');
-        const progressText = document.getElementById('progress-text');
+        const loadingOverlay = document.getElementById('loading-overlay');
+        const btnMenu = document.getElementById('btn-menu');
+        const btnHome = document.getElementById('btn-home');
+        const btnAddBook = document.getElementById('btn-add-book');
+        const fontControls = document.getElementById('font-controls');
         const footer = document.getElementById('footer');
+        const bookTitleEl = document.getElementById('book-title');
 
         const themes = {
             light: { body: { background: '#F9F7F1', color: '#2C2C2C' }, p: { 'font-family': 'Merriweather, serif', 'line-height': '1.6' } },
@@ -320,90 +234,225 @@
             dark: { body: { background: '#1A1A1A', color: '#E0E0E0' }, p: { 'font-family': 'Merriweather, serif', 'line-height': '1.6' }, a: { color: '#818CF8' } }
         };
 
-        fileInputs.forEach(input => {
-            input.addEventListener('change', function(e) {
-                const file = e.target.files[0];
-                if (file) {
-                    if (window.FileReader) {
-                        const reader = new FileReader();
-                        reader.onload = function(e) { loadBook(e.target.result); };
-                        reader.readAsArrayBuffer(file);
-                    }
-                }
-            });
-        });
+        // --- Library Management (IndexedDB via localForage) ---
 
-        function loadBook(bookData) {
-            if (book) {
-                book.destroy();
-                viewerElement.innerHTML = '';
+        async function initApp() {
+            localforage.config({ name: 'PhotonReader', storeName: 'books' });
+            libraryData = await localforage.getItem('library_metadata') || [];
+            renderLibrary();
+        }
+
+        function renderLibrary() {
+            const grid = document.getElementById('library-grid');
+            const emptyState = document.getElementById('empty-state');
+            grid.innerHTML = '';
+            
+            if (libraryData.length === 0) {
+                emptyState.classList.remove('hidden');
+                emptyState.classList.add('flex');
+            } else {
+                emptyState.classList.add('hidden');
+                emptyState.classList.remove('flex');
+                
+                libraryData.forEach(item => {
+                    const card = document.createElement('div');
+                    card.className = 'book-card flex flex-col gap-2';
+                    card.onclick = () => openBookFromLibrary(item.id);
+                    
+                    const coverSrc = item.coverBase64 || 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="200" height="300" fill="%23E5E5E5"><rect width="100%" height="100%"/><text x="50%" y="50%" fill="%23999" font-family="sans-serif" font-size="14" text-anchor="middle">No Cover</text></svg>';
+                    
+                    card.innerHTML = `
+                        <img src="${coverSrc}" class="book-cover-img shadow-md" alt="${item.title}">
+                        <div>
+                            <h3 class="font-bold text-sm truncate" title="${item.title}">${item.title}</h3>
+                            <p class="text-xs opacity-70 truncate">${item.author || 'Unknown Author'}</p>
+                        </div>
+                    `;
+                    grid.appendChild(card);
+                });
+            }
+        }
+
+        fileInput.addEventListener('change', async function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            loadingOverlay.classList.remove('hidden');
+            loadingOverlay.classList.add('flex');
+
+            const id = 'book_' + Date.now();
+            const arrayBuffer = await file.arrayBuffer();
+            
+            // Temporarily load with ePub.js to extract metadata and cover
+            const tempBook = ePub(arrayBuffer);
+            await tempBook.ready;
+            
+            const meta = tempBook.package.metadata;
+            let coverBase64 = null;
+            
+            const coverUrl = await tempBook.coverUrl();
+            if (coverUrl) {
+                coverBase64 = await blobUrlToBase64(coverUrl);
+                tempBook.destroy(); // clean up memory
             }
 
-            uploadScreen.style.display = 'none';
-            btnMenu.classList.remove('hidden');
-            footer.classList.remove('opacity-0');
+            // Save actual file to IndexedDB
+            await localforage.setItem(id, arrayBuffer);
+            
+            // Update and save metadata
+            const newBookMeta = {
+                id: id,
+                title: meta.title || "Unknown Title",
+                author: meta.creator || "Unknown Author",
+                coverBase64: coverBase64,
+                lastCfi: null // No reading position yet
+            };
+            
+            libraryData.unshift(newBookMeta);
+            await localforage.setItem('library_metadata', libraryData);
+            
+            renderLibrary();
+            loadingOverlay.classList.add('hidden');
+            loadingOverlay.classList.remove('flex');
+            
+            // Immediately open the newly added book
+            openBookFromLibrary(id);
+        });
+
+        async function blobUrlToBase64(blobUrl) {
+            const response = await fetch(blobUrl);
+            const blob = await response.blob();
+            return new Promise((resolve) => {
+                const reader = new FileReader();
+                reader.onloadend = () => resolve(reader.result);
+                reader.readAsDataURL(blob);
+            });
+        }
+
+        // --- Reading Mode Logic ---
+
+        async function openBookFromLibrary(id) {
+            loadingOverlay.classList.remove('hidden');
+            loadingOverlay.classList.add('flex');
+
+            const bookMeta = libraryData.find(b => b.id === id);
+            const bookData = await localforage.getItem(id);
+            
+            if (!bookData) {
+                alert("Error loading book data.");
+                loadingOverlay.classList.add('hidden');
+                return;
+            }
+
+            currentActiveBookId = id;
+            switchToReaderUI(bookMeta.title);
+
+            if (book) { book.destroy(); viewerElement.innerHTML = ''; }
 
             book = ePub(bookData);
-            
             rendition = book.renderTo("viewer", {
-                width: "100%",
-                height: "100%",
-                spread: "none",
-                manager: "continuous",
-                flow: "paginated"
+                width: "100%", height: "100%", spread: "none", manager: "continuous", flow: "paginated"
             });
 
             rendition.themes.register("light", themes.light);
             rendition.themes.register("sepia", themes.sepia);
             rendition.themes.register("dark", themes.dark);
-            
-            const currentTheme = document.body.className.includes('sepia') ? 'sepia' : 
-                                 document.body.className.includes('dark') ? 'dark' : 'light';
+            const currentTheme = document.body.className.includes('sepia') ? 'sepia' : (document.body.className.includes('dark') ? 'dark' : 'light');
             rendition.themes.select(currentTheme);
             rendition.themes.fontSize(`${currentFontSize}%`);
 
-            rendition.display();
+            // Start display. If we have a saved CFI position, go there, otherwise start at beginning.
+            if (bookMeta.lastCfi) {
+                rendition.display(bookMeta.lastCfi);
+            } else {
+                rendition.display();
+            }
 
             book.ready.then(() => {
-                const meta = book.package.metadata;
-                bookTitleEl.textContent = meta.title || "Unknown Title";
-                document.title = `${meta.title} - Photon Reader`;
-                return book.locations.generate(1600); 
-            }).then((locations) => {
+                // Generate locations for accurate PAGE NUMBERS (1024 chars per page standard)
+                return book.locations.generate(1024); 
+            }).then(() => {
+                loadingOverlay.classList.add('hidden');
+                loadingOverlay.classList.remove('flex');
+                
                 rendition.on('relocated', function(location) {
-                    const percent = book.locations.percentageFromCfi(location.start.cfi);
-                    const percentage = Math.round(percent * 100);
-                    progressBar.style.width = `${percentage}%`;
-                    progressText.textContent = `${percentage}%`;
+                    // Update Page Numbers
+                    const currentPage = book.locations.locationFromCfi(location.start.cfi);
+                    const totalPages = book.locations.total;
                     
-                    const currentTOCItem = book.navigation.get(location.start.href);
-                    if(currentTOCItem) {
-                        chapterNameEl.textContent = currentTOCItem.label;
+                    const progressText = document.getElementById('progress-text');
+                    const progressBar = document.getElementById('progress-bar');
+                    
+                    if (totalPages > 0) {
+                        progressText.textContent = `Page ${currentPage} of ${totalPages}`;
+                        progressBar.style.width = `${Math.round((currentPage / totalPages) * 100)}%`;
+                    } else {
+                        progressText.textContent = `Reading...`;
                     }
+                    
+                    // Update Chapter Name
+                    const currentTOCItem = book.navigation.get(location.start.href);
+                    if(currentTOCItem) { document.getElementById('chapter-name').textContent = currentTOCItem.label; }
+
+                    // Save Reading Position to DB
+                    saveReadingPosition(currentActiveBookId, location.start.cfi);
                 });
             });
 
+            // Setup TOC
             book.loaded.navigation.then((nav) => {
                 const tocList = document.getElementById('toc-list');
                 tocList.innerHTML = '';
                 nav.forEach((item) => {
                     const li = document.createElement('li');
                     const a = document.createElement('a');
-                    a.textContent = item.label;
-                    a.href = "#";
-                    a.className = "toc-item block cursor-pointer";
-                    a.onclick = (e) => {
-                        e.preventDefault();
-                        rendition.display(item.href);
-                        toggleMenu(false);
-                    };
-                    li.appendChild(a);
-                    tocList.appendChild(li);
+                    a.textContent = item.label; a.href = "#"; a.className = "toc-item block cursor-pointer";
+                    a.onclick = (e) => { e.preventDefault(); rendition.display(item.href); toggleMenu(false); };
+                    li.appendChild(a); tocList.appendChild(li);
                 });
             });
 
             setupRenditionEvents();
         }
+
+        async function saveReadingPosition(id, cfi) {
+            const index = libraryData.findIndex(b => b.id === id);
+            if (index !== -1) {
+                libraryData[index].lastCfi = cfi;
+                await localforage.setItem('library_metadata', libraryData);
+            }
+        }
+
+        function switchToReaderUI(title) {
+            libraryScreen.style.display = 'none';
+            viewerContainer.style.display = 'flex';
+            footer.classList.remove('hidden');
+            btnMenu.classList.remove('hidden');
+            btnHome.classList.remove('hidden');
+            tocSidebar.classList.remove('hidden');
+            btnAddBook.classList.add('hidden');
+            fontControls.classList.add('sm:flex');
+            bookTitleEl.textContent = title;
+            document.title = `${title} - Photon Reader`;
+        }
+
+        btnHome.addEventListener('click', () => {
+            viewerContainer.style.display = 'none';
+            libraryScreen.style.display = 'flex';
+            footer.classList.add('hidden');
+            btnMenu.classList.add('hidden');
+            btnHome.classList.add('hidden');
+            tocSidebar.classList.add('hidden');
+            btnAddBook.classList.remove('hidden');
+            fontControls.classList.remove('sm:flex');
+            bookTitleEl.textContent = '';
+            document.title = "Photon Reader";
+            currentActiveBookId = null;
+            if(book) { book.destroy(); rendition = null; viewerElement.innerHTML = ''; }
+        });
+
+
+        // --- Navigation & Theming ---
 
         function nextPage() {
             if (isAnimating || !rendition) return;
@@ -413,10 +462,7 @@
                 rendition.next().then(() => {
                     viewerElement.classList.remove('turn-next-out');
                     viewerElement.classList.add('turn-next-in');
-                    setTimeout(() => {
-                        viewerElement.classList.remove('turn-next-in');
-                        isAnimating = false;
-                    }, 400); 
+                    setTimeout(() => { viewerElement.classList.remove('turn-next-in'); isAnimating = false; }, 400); 
                 });
             }, 300); 
         }
@@ -429,28 +475,19 @@
                 rendition.prev().then(() => {
                     viewerElement.classList.remove('turn-prev-out');
                     viewerElement.classList.add('turn-prev-in');
-                    setTimeout(() => {
-                        viewerElement.classList.remove('turn-prev-in');
-                        isAnimating = false;
-                    }, 400);
+                    setTimeout(() => { viewerElement.classList.remove('turn-prev-in'); isAnimating = false; }, 400);
                 });
             }, 300);
         }
 
         function setupRenditionEvents() {
-            let touchStartX = 0;
-            let touchEndX = 0;
-            
-            rendition.on('touchstart', event => {
-                touchStartX = event.changedTouches[0].screenX;
-            });
-
+            let touchStartX = 0; let touchEndX = 0;
+            rendition.on('touchstart', event => { touchStartX = event.changedTouches[0].screenX; });
             rendition.on('touchend', event => {
                 touchEndX = event.changedTouches[0].screenX;
                 if (touchEndX < touchStartX - 50) nextPage();
                 if (touchEndX > touchStartX + 50) prevPage();
             });
-
             rendition.on('keyup', event => {
                 if(event.key === 'ArrowRight') nextPage();
                 if(event.key === 'ArrowLeft') prevPage();
@@ -461,10 +498,11 @@
         document.getElementById('btn-prev').addEventListener('click', prevPage);
         document.getElementById('next-zone').addEventListener('click', nextPage);
         document.getElementById('prev-zone').addEventListener('click', prevPage);
-
         document.addEventListener('keyup', (e) => {
-            if(e.key === 'ArrowRight') nextPage();
-            if(e.key === 'ArrowLeft') prevPage();
+            if(viewerContainer.style.display === 'flex') {
+                if(e.key === 'ArrowRight') nextPage();
+                if(e.key === 'ArrowLeft') prevPage();
+            }
         });
 
         window.setTheme = function(theme) {
@@ -478,7 +516,6 @@
         document.getElementById('btn-font-decrease').addEventListener('click', () => {
             if (currentFontSize > 70) { currentFontSize -= 10; updateFontSize(); }
         });
-
         function updateFontSize() {
             document.getElementById('font-size-display').textContent = `${currentFontSize}%`;
             if (rendition) rendition.themes.fontSize(`${currentFontSize}%`);
@@ -486,18 +523,14 @@
 
         function toggleMenu(force) {
             const isOpen = force !== undefined ? force : !tocSidebar.classList.contains('open');
-            if (isOpen) {
-                tocSidebar.classList.add('open');
-                overlay.classList.remove('hidden');
-            } else {
-                tocSidebar.classList.remove('open');
-                overlay.classList.add('hidden');
-            }
+            if (isOpen) { tocSidebar.classList.add('open'); overlay.classList.remove('hidden'); } 
+            else { tocSidebar.classList.remove('open'); overlay.classList.add('hidden'); }
         }
-        
         btnMenu.addEventListener('click', () => toggleMenu());
         overlay.addEventListener('click', () => toggleMenu(false));
 
+        // Start App
+        initApp();
     </script>
 </body>
 </html>
